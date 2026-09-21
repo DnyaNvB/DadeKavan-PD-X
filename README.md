@@ -6,14 +6,16 @@ The system retrieves TSETMC order-book data for 10 stocks and ETFs at a target i
 
 ## Technology
 
-- Python: **3.11.2**
-- Environment manager: **Python `venv` + `pip`**
+- Python **3.11.2**
+- Environment manager: Python `venv` + `pip`
 - Redis
 - MySQL
 - SQLAlchemy 2.x
 - Django
 - FastAPI
 - Docker Compose
+- Prometheus
+- Grafana
 
 ## Architecture
 
@@ -36,9 +38,15 @@ WorkerA
          v           v
  Django :6280     FastAPI :6288
     /app             /api
+
+WorkerA :9101 ----\
+                  +--> Prometheus :9090 --> Grafana :3000
+WorkerB :9102 ----/
 ```
 
 WorkerA publishes each processed market-data message to the required Redis Pub/Sub channel. A Redis Stream is also used for reliable delivery to WorkerB. WorkerB stores each message in MySQL inside a transaction and acknowledges the Redis message only after the database commit succeeds.
+
+Prometheus collects runtime metrics from both workers, and Grafana provides a preconfigured monitoring dashboard.
 
 ## Configuration
 
@@ -64,18 +72,26 @@ MYSQL_DATABASE=DadeKavan-PD-X
 
 The static FastAPI API key is also defined in `.env` and is sent through the `X-API-Key` request header.
 
+Grafana credentials are also loaded from `.env`.
+
 ## Run with Docker
 
-Start the full stack:
+Start the core application:
 
 ```bash
 docker compose up --build -d
 ```
 
+Start the complete application with monitoring:
+
+```bash
+docker compose   -f docker-compose.yml   -f docker-compose.monitoring.yml   up --build -d
+```
+
 Check service status:
 
 ```bash
-docker compose ps
+docker compose   -f docker-compose.yml   -f docker-compose.monitoring.yml   ps
 ```
 
 Create a Django administrator if needed:
@@ -91,6 +107,8 @@ Useful URLs:
 - Django profile: `http://127.0.0.1:6280/app/profile/`
 - Django admin: `http://127.0.0.1:6280/app/admin/`
 - FastAPI Swagger: `http://127.0.0.1:6288/api/docs`
+- Prometheus: `http://127.0.0.1:9090`
+- Grafana: `http://127.0.0.1:3000`
 
 View worker logs:
 
@@ -137,7 +155,7 @@ Run Django migrations:
 python django_app/manage.py migrate
 ```
 
-Start each process in a separate terminal:
+Start each application in a separate terminal:
 
 ```bash
 python -m workers.worker_a
@@ -171,7 +189,8 @@ WorkerA:
 - processes the order-book response into a consistent structure
 - targets a 350 ms polling interval
 - publishes JSON to Redis channel `DadeKavan-PD-X`
-- also writes the same message to a Redis Stream for reliable WorkerB processing
+- writes the same message to a Redis Stream for reliable WorkerB processing
+- exposes Prometheus metrics on port `9101`
 
 Example message:
 
@@ -213,6 +232,8 @@ For each Redis Stream message, WorkerB:
 5. acknowledges the Redis message after the commit
 
 The Redis Stream message ID is stored as `redisMessageId` and is unique, which prevents duplicate rows if a message is delivered again after a restart.
+
+WorkerB exposes Prometheus metrics on port `9102`.
 
 The main market-data table is exactly:
 
@@ -277,9 +298,41 @@ Behavior:
 Example:
 
 ```bash
-curl \
-  -H 'X-API-Key: DadeKavan-PD-X-API-KEY-CHANGE-ME' \
-  http://127.0.0.1:6288/api/RTDS/get/current/35425587644337450
+curl   -H 'X-API-Key: DadeKavan-PD-X-API-KEY-CHANGE-ME'   http://127.0.0.1:6288/api/RTDS/get/current/35425587644337450
+```
+
+## Monitoring
+
+Prometheus collects metrics from WorkerA and WorkerB, and Grafana provides an automatically provisioned dashboard.
+
+Start the monitoring stack with:
+
+```bash
+docker compose   -f docker-compose.yml   -f docker-compose.monitoring.yml   up --build -d
+```
+
+Open:
+
+- Prometheus: `http://127.0.0.1:9090`
+- Grafana: `http://127.0.0.1:3000`
+
+The `DadeKavan-PD-X Worker Monitoring` dashboard includes:
+
+- WorkerA and WorkerB availability
+- WorkerA published-message throughput
+- WorkerB processed-message throughput
+- TSETMC fetch failures
+- Redis publish errors
+- WorkerB processing errors
+- WorkerA polling-cycle p95 duration
+- latest worker batch sizes
+- time since last successful WorkerA publish
+- time since last successful WorkerB processing
+
+Prometheus targets can be checked at:
+
+```text
+http://127.0.0.1:9090/targets
 ```
 
 ## Reliability and design decisions
@@ -297,6 +350,7 @@ The implementation includes:
 - processing of pending Redis messages after WorkerB restarts
 - Docker health checks and restart policies
 - worker heartbeat/progress logging
+- Prometheus metrics and Grafana monitoring
 - FastAPI Swagger/OpenAPI documentation
 - indexed MySQL queries for current and historical market data
 
@@ -320,25 +374,7 @@ If TSETMC is temporarily unavailable or inaccessible from the current network, m
 TSETMC_MOCK=true
 ```
 
-The downstream Redis, WorkerB, MySQL, Django, and FastAPI components continue to work unchanged.
-
-
-## Monitoring
-
-Prometheus collects metrics from WorkerA and WorkerB, and Grafana provides an automatically provisioned worker dashboard.
-
-Start the application with monitoring:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up --build -d
-```
-
-Open:
-
-- Grafana: `http://127.0.0.1:3000`
-- Prometheus: `http://127.0.0.1:9090`
-
-Grafana credentials are loaded from `.env`. The `DadeKavan-PD-X Worker Monitoring` dashboard shows worker availability, throughput, failures, polling-cycle duration, batch sizes, and last successful activity.
+The downstream Redis, WorkerB, MySQL, Django, FastAPI, Prometheus, and Grafana components continue to work unchanged.
 
 ## Tests
 
