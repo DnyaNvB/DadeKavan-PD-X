@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import timezone
 
 import redis.asyncio as redis
@@ -12,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from common.config import get_settings
 from common.db import Base, get_engine, get_session_factory
 from common.logging import configure_logging
+from common.metrics import WorkerBMetrics
 from common.models import RTDS
 from common.schemas import MarketMessage
 
@@ -23,6 +25,7 @@ class WorkerB:
         self.settings = get_settings()
         self.redis = redis.Redis.from_url(self.settings.redis_url, decode_responses=True)
         self.sessions = get_session_factory()
+        self.metrics = WorkerBMetrics()
 
     async def initialize(self) -> None:
         async with get_engine().begin() as connection:
@@ -101,24 +104,37 @@ class WorkerB:
         return stored, failed
 
     async def run(self) -> None:
+        self.metrics.start()
+        logger.info("WorkerB Prometheus metrics listening on :9102")
         await self.initialize()
         logger.info("WorkerB initialized; pending messages are retried before new messages")
         total = 0
         while True:
             try:
                 pending_stored, pending_failed = await self._consume("0")
+                self.metrics.processed_messages.inc(pending_stored)
+                self.metrics.failed_messages.inc(pending_failed)
+                self.metrics.last_batch_size.set(pending_stored)
+                if pending_stored:
+                    self.metrics.last_success_unixtime.set(time.time())
                 total += pending_stored
                 if pending_failed:
                     await asyncio.sleep(1)
                     continue
 
                 new_stored, new_failed = await self._consume(">")
+                self.metrics.processed_messages.inc(new_stored)
+                self.metrics.failed_messages.inc(new_failed)
+                self.metrics.last_batch_size.set(new_stored)
+                if new_stored:
+                    self.metrics.last_success_unixtime.set(time.time())
                 total += new_stored
                 if new_failed:
                     await asyncio.sleep(1)
                 if total and total % 1000 == 0:
                     logger.info("stored %d messages", total)
             except (redis.RedisError, SQLAlchemyError) as exc:
+                self.metrics.loop_errors.inc()
                 logger.exception("WorkerB loop error: %s", exc)
                 await asyncio.sleep(1)
 

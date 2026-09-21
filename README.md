@@ -322,6 +322,24 @@ TSETMC_MOCK=true
 
 The downstream Redis, WorkerB, MySQL, Django, and FastAPI components continue to work unchanged.
 
+
+## Monitoring
+
+Prometheus collects metrics from WorkerA and WorkerB, and Grafana provides an automatically provisioned worker dashboard.
+
+Start the application with monitoring:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up --build -d
+```
+
+Open:
+
+- Grafana: `http://127.0.0.1:3000`
+- Prometheus: `http://127.0.0.1:9090`
+
+Grafana credentials are loaded from `.env`. The `DadeKavan-PD-X Worker Monitoring` dashboard shows worker availability, throughput, failures, polling-cycle duration, batch sizes, and last successful activity.
+
 ## Tests
 
 Run:

@@ -15,6 +15,7 @@ import redis.asyncio as redis
 
 from common.config import ROOT_DIR, get_settings
 from common.logging import configure_logging
+from common.metrics import WorkerAMetrics
 from common.schemas import MarketMessage, OrderBookLevel
 
 logger = logging.getLogger("workerA")
@@ -140,6 +141,7 @@ class WorkerA:
         self.redis = redis.Redis.from_url(self.settings.redis_url, decode_responses=True)
         self.book_state: dict[str, dict[int, OrderBookLevel]] = {}
         self._mock_tick = 0
+        self.metrics = WorkerAMetrics()
 
     async def _publish_many(self, messages: list[MarketMessage]) -> None:
         if not messages:
@@ -150,6 +152,8 @@ class WorkerA:
             pipe.publish(self.settings.redis_channel, data)
             pipe.xadd(self.settings.redis_stream, {"data": data})
         await pipe.execute()
+        self.metrics.published_messages.inc(len(messages))
+        self.metrics.last_publish_unixtime.set(time.time())
 
     async def _resolve_all(self, client: TsetmcClient) -> list[Instrument]:
         delay = 1.0
@@ -157,6 +161,7 @@ class WorkerA:
             try:
                 instruments = await asyncio.gather(*(client.resolve(asset) for asset in self.assets))
                 logger.info("resolved %d TSETMC instruments", len(instruments))
+                self.metrics.resolved_instruments.set(len(instruments))
                 return list(instruments)
             except (aiohttp.ClientError, asyncio.TimeoutError, LookupError, ValueError) as exc:
                 logger.error("instrument resolution failed type=%s error=%r; retrying in %.1fs",type(exc).__name__,exc,delay)
@@ -182,6 +187,7 @@ class WorkerA:
                 book=levels,
             )
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+            self.metrics.fetch_failures.inc()
             logger.warning("TSETMC fetch failed for %s type=%s error=%r",instrument.symbol,type(exc).__name__,exc,)
             return None
 
@@ -219,6 +225,8 @@ class WorkerA:
         return messages
 
     async def run(self) -> None:
+        self.metrics.start()
+        logger.info("WorkerA Prometheus metrics listening on :9101")
         interval = self.settings.tsetmc_poll_interval_ms / 1000
         headers = {
             "User-Agent": USER_AGENT,
@@ -246,8 +254,11 @@ class WorkerA:
                 try:
                     await self._publish_many(messages)
                 except redis.RedisError as exc:
+                    self.metrics.redis_publish_errors.inc()
                     logger.error("Redis publish batch failed: %s", exc)
 
+                self.metrics.batch_size.set(len(messages))
+                self.metrics.cycle_duration_seconds.observe(time.monotonic() - started)
                 tick += 1
                 if tick % 100 == 0:
                     logger.info("heartbeat tick=%d published=%d", tick, len(messages))
