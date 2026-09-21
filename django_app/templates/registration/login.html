@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Login · DadeKavan-PD-X{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Login</h1>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">Log in</button>
+  </form>
+</div>
+{% endblock %}

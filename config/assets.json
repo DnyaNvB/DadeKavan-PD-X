@@ -1,0 +1,12 @@
+[
+  {"symbol": "فملی", "assetType": "stock"},
+  {"symbol": "فولاد", "assetType": "stock"},
+  {"symbol": "خودرو", "assetType": "stock"},
+  {"symbol": "وبملت", "assetType": "stock"},
+  {"symbol": "شپنا", "assetType": "stock"},
+  {"symbol": "شبندر", "assetType": "stock"},
+  {"symbol": "شستا", "assetType": "stock"},
+  {"symbol": "کگل", "assetType": "stock"},
+  {"symbol": "دارا یکم", "assetType": "etf"},
+  {"symbol": "پالایش", "assetType": "etf"}
+]

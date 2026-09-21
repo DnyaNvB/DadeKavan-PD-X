@@ -1,0 +1,103 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--port", "6204", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    ports:
+      - "6204:6204"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6204", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mysql:
+    image: mysql:8.4
+    command: ["--port=6206", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "6206:6206"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-P", "6206", "-u${MYSQL_USER}", "-p${MYSQL_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  migrate:
+    build: .
+    command: python django_app/manage.py migrate --noinput
+    env_file: .env
+    environment:
+      MYSQL_HOST: mysql
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+
+  worker-a:
+    build: .
+    command: python -m workers.worker_a
+    env_file: .env
+    environment:
+      REDIS_HOST: redis
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker-b:
+    build: .
+    command: python -m workers.worker_b
+    env_file: .env
+    environment:
+      REDIS_HOST: redis
+      MYSQL_HOST: mysql
+    depends_on:
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  django:
+    build: .
+    command: python django_app/manage.py runserver 0.0.0.0:6280
+    env_file: .env
+    environment:
+      MYSQL_HOST: mysql
+    ports:
+      - "6280:6280"
+    volumes:
+      - media:/app/media
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  fastapi:
+    build: .
+    command: uvicorn fastapi_app.main:app --host 0.0.0.0 --port 6288
+    env_file: .env
+    environment:
+      MYSQL_HOST: mysql
+      MEDIA_ROOT: /app/media
+    ports:
+      - "6288:6288"
+    volumes:
+      - media:/app/media:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  mysql-data:
+  media:

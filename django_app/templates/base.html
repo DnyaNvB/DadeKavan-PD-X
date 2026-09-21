@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}DadeKavan-PD-X{% endblock %}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 18px; color: #1f2937; }
+    nav { display:flex; justify-content:space-between; margin-bottom:24px; }
+    form { display:grid; gap:12px; }
+    input, select, button { padding:10px; font:inherit; }
+    button { cursor:pointer; }
+    .card { border:1px solid #ddd; border-radius:12px; padding:24px; }
+    .messages { padding:0; }
+    .messages li { list-style:none; padding:8px; background:#f3f4f6; margin-bottom:8px; }
+    img { max-width:140px; border-radius:12px; }
+  </style>
+</head>
+<body>
+<nav>
+  <strong>DadeKavan-PD-X</strong>
+  {% if user.is_authenticated %}
+    <form method="post" action="{% url 'logout' %}" style="display:inline">{% csrf_token %}<button type="submit">Log out</button></form>
+  {% endif %}
+</nav>
+{% if messages %}<ul class="messages">{% for message in messages %}<li>{{ message }}</li>{% endfor %}</ul>{% endif %}
+{% block content %}{% endblock %}
+</body>
+</html>

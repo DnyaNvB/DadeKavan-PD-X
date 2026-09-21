@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}My profile · DadeKavan-PD-X{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>My profile</h1>
+  <p>Username: <strong>{{ user.username }}</strong></p>
+  <p>User level: <strong>{{ profile.get_user_level_display }}</strong></p>
+  {% if profile.photo %}<img src="{{ profile.photo.url }}" alt="Profile photo">{% endif %}
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ user_form.as_p }}
+    {{ profile_form.as_p }}
+    <button type="submit">Save changes</button>
+  </form>
+</div>
+{% endblock %}
