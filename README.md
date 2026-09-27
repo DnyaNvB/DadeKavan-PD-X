@@ -1,4 +1,4 @@
-# DadeKavan-PD-X — Real-Time TSETMC Data Pipeline
+# Real-Time TSETMC Data Pipeline
 
 A real-time market-data pipeline built with Python 3.11.2.
 
